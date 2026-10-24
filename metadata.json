@@ -1,0 +1,6 @@
+{
+  "name": "Pocket Financial Analyst",
+  "description": "Automated personal finance tracking with smart bank SMS detection, custom keywords and categories, and real-time spending analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
