@@ -42,6 +42,13 @@ data class AnalystSummary(
     val manualTransactionCount: Int = 0
 )
 
+enum class TxSortOption(val label: String) {
+    DATE_DESC("Date: Newest first"),
+    DATE_ASC("Date: Oldest first"),
+    AMOUNT_DESC("Amount: Highest first"),
+    AMOUNT_ASC("Amount: Lowest first")
+}
+
 data class FeedFilter(
     val searchQuery: String = "",
     val typeFilter: TransactionType? = null,
@@ -55,6 +62,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     val allTransactions: StateFlow<List<TransactionEntity>> = repository.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val txns: StateFlow<List<TransactionEntity>> = allTransactions
 
     val allCategories: StateFlow<List<CategoryEntity>> = repository.allCategories
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -74,11 +83,58 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         prefs.edit().putBoolean("dark_mode", enabled).apply()
     }
 
+    private val _isAppLockEnabled = MutableStateFlow(prefs.getBoolean("app_lock_enabled", false))
+    val isAppLockEnabled: StateFlow<Boolean> = _isAppLockEnabled
+
+    private val _appPin = MutableStateFlow(prefs.getString("app_pin", "1234") ?: "1234")
+    val appPin: StateFlow<String> = _appPin
+
+    private val _isUnlocked = MutableStateFlow(!prefs.getBoolean("app_lock_enabled", false))
+    val isUnlocked: StateFlow<Boolean> = _isUnlocked
+
+    fun setAppLockEnabled(enabled: Boolean) {
+        _isAppLockEnabled.value = enabled
+        prefs.edit().putBoolean("app_lock_enabled", enabled).apply()
+        if (!enabled) {
+            _isUnlocked.value = true
+        }
+    }
+
+    fun setAppPin(pin: String) {
+        _appPin.value = pin
+        prefs.edit().putString("app_pin", pin).apply()
+    }
+
+    fun unlockApp() {
+        _isUnlocked.value = true
+    }
+
+    fun lockApp() {
+        if (_isAppLockEnabled.value) {
+            _isUnlocked.value = false
+        }
+    }
+
     private val _selectedTimeframe = MutableStateFlow<TimeframeFilter>(TimeframeFilter.Last7Days)
     val selectedTimeframe: StateFlow<TimeframeFilter> = _selectedTimeframe
 
     private val _feedFilter = MutableStateFlow(FeedFilter())
     val feedFilter: StateFlow<FeedFilter> = _feedFilter
+
+    private val _txnTypeFilter = MutableStateFlow<TransactionType?>(null)
+    val txnTypeFilter: StateFlow<TransactionType?> = _txnTypeFilter
+
+    private val _txnSortOption = MutableStateFlow(TxSortOption.DATE_DESC)
+    val txnSortOption: StateFlow<TxSortOption> = _txnSortOption
+
+    fun setTxnTypeFilter(type: TransactionType?) {
+        _txnTypeFilter.value = type
+        _feedFilter.value = _feedFilter.value.copy(typeFilter = type)
+    }
+
+    fun setTxnSortOption(option: TxSortOption) {
+        _txnSortOption.value = option
+    }
 
     // Filtered transactions for the selected timeframe
     val timeframeTransactions: StateFlow<List<TransactionEntity>> = combine(
@@ -261,7 +317,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     arrayOf("address", "body", "date"),
                     null,
                     null,
-                    "date DESC LIMIT 50"
+                    "date DESC"
                 )
                 val keywords = allKeywords.value
                 val allowedSenders = allBankSenders.value

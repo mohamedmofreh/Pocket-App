@@ -138,4 +138,19 @@ object SmsParser {
             isSenderAllowed = true
         )
     }
+
+    fun cleanBody(body: String): String {
+        var text = body
+        val balancePatterns = listOf(
+            Regex("(?i)(?:available\\s+balance\\s+(?:is)?|avail\\.?\\s*bal|avl\\s*bal|a/c\\s*bal|balance)\\s*(?:is)?[:\\s\\-]*([a-zA-Z]{3}\\s*)?([\\d,]+\\.?\\d*|\\*+)", RegexOption.IGNORE_CASE)
+        )
+        for (p in balancePatterns) {
+            text = text.replace(p) { matchResult ->
+                val prefix = matchResult.groupValues[1]
+                val matchedText = matchResult.value
+                matchedText.substringBefore(prefix) + prefix + "****"
+            }
+        }
+        return text
+    }
 }

@@ -27,8 +27,11 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,7 +43,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,6 +63,7 @@ import com.example.ui.theme.Cyan500
 import com.example.ui.theme.Emerald500
 import com.example.ui.theme.Rose500
 import com.example.ui.viewmodel.FinanceViewModel
+import com.example.ui.viewmodel.TxSortOption
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -70,11 +76,41 @@ fun FeedScreen(
     onSelectTransaction: (TransactionEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val transactions by viewModel.feedTransactions.collectAsStateWithLifecycle()
+    val txns by viewModel.txns.collectAsStateWithLifecycle()
+    val typeFilter by viewModel.txnTypeFilter.collectAsStateWithLifecycle()
+    val sortOption by viewModel.txnSortOption.collectAsStateWithLifecycle()
     val filter by viewModel.feedFilter.collectAsStateWithLifecycle()
     val categories by viewModel.allCategories.collectAsStateWithLifecycle()
 
+    var showSortMenu by remember { mutableStateOf(false) }
     val timeFormat = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
+
+    // Pipeline: 2. Type Filtering & search/category/source filtering
+    val filtered = remember(txns, typeFilter, filter) {
+        txns.filter { tx ->
+            val matchesQuery = filter.searchQuery.isBlank() ||
+                    tx.merchant.contains(filter.searchQuery, ignoreCase = true) ||
+                    tx.notes.contains(filter.searchQuery, ignoreCase = true) ||
+                    tx.categoryName.contains(filter.searchQuery, ignoreCase = true) ||
+                    String.format("%.2f", tx.amount).contains(filter.searchQuery)
+
+            val matchesType = typeFilter == null || tx.type == typeFilter
+            val matchesCategory = filter.categoryFilter == null || tx.categoryName.equals(filter.categoryFilter, ignoreCase = true)
+            val matchesSource = filter.sourceFilter == null || tx.source == filter.sourceFilter
+
+            matchesQuery && matchesType && matchesCategory && matchesSource
+        }
+    }
+
+    // Pipeline: 3. Sorting & 4. Efficient Compose Caching (remember)
+    val sortedTransactions = remember(filtered, sortOption) {
+        when (sortOption) {
+            TxSortOption.DATE_DESC -> filtered.sortedByDescending { it.timestamp }
+            TxSortOption.DATE_ASC -> filtered.sortedBy { it.timestamp }
+            TxSortOption.AMOUNT_DESC -> filtered.sortedByDescending { it.amount }
+            TxSortOption.AMOUNT_ASC -> filtered.sortedBy { it.amount }
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -84,16 +120,69 @@ fun FeedScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
-                Text(
-                    text = "Transaction Feed",
-                    style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = "${transactions.size} records found",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Transaction Feed",
+                            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Text(
+                            text = "${sortedTransactions.size} records found",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Sort button & menu
+                    Box {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .clickable { showSortMenu = true }
+                                .testTag("feed_sort_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Sort,
+                                    contentDescription = "Sort",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = sortOption.label.split(":")[0], // Short label e.g. "Date" or "Amount"
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        androidx.compose.material3.DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false }
+                        ) {
+                            TxSortOption.entries.forEach { option ->
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = { Text(option.label) },
+                                    onClick = {
+                                        viewModel.setTxnSortOption(option)
+                                        showSortMenu = false
+                                    },
+                                    modifier = Modifier.testTag("sort_option_${option.name}")
+                                )
+                            }
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -133,17 +222,20 @@ fun FeedScreen(
                     item {
                         FilterTagChip(
                             label = "All",
-                            isSelected = filter.typeFilter == null && filter.sourceFilter == null && filter.categoryFilter == null,
-                            onClick = { viewModel.clearFeedFilters() }
+                            isSelected = typeFilter == null && filter.sourceFilter == null && filter.categoryFilter == null,
+                            onClick = {
+                                viewModel.setTxnTypeFilter(null)
+                                viewModel.clearFeedFilters()
+                            }
                         )
                     }
                     item {
                         FilterTagChip(
                             label = "Debited",
-                            isSelected = filter.typeFilter == TransactionType.EXPENSE,
+                            isSelected = typeFilter == TransactionType.EXPENSE,
                             onClick = {
-                                viewModel.setTypeFilter(
-                                    if (filter.typeFilter == TransactionType.EXPENSE) null else TransactionType.EXPENSE
+                                viewModel.setTxnTypeFilter(
+                                    if (typeFilter == TransactionType.EXPENSE) null else TransactionType.EXPENSE
                                 )
                             }
                         )
@@ -151,10 +243,10 @@ fun FeedScreen(
                     item {
                         FilterTagChip(
                             label = "Credited",
-                            isSelected = filter.typeFilter == TransactionType.INCOME,
+                            isSelected = typeFilter == TransactionType.INCOME,
                             onClick = {
-                                viewModel.setTypeFilter(
-                                    if (filter.typeFilter == TransactionType.INCOME) null else TransactionType.INCOME
+                                viewModel.setTxnTypeFilter(
+                                    if (typeFilter == TransactionType.INCOME) null else TransactionType.INCOME
                                 )
                             }
                         )
@@ -197,7 +289,7 @@ fun FeedScreen(
             }
 
             // Grouped Timeline List
-            if (transactions.isEmpty()) {
+            if (sortedTransactions.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -227,13 +319,16 @@ fun FeedScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        TextButton(onClick = { viewModel.clearFeedFilters() }) {
+                        TextButton(onClick = {
+                            viewModel.setTxnTypeFilter(null)
+                            viewModel.clearFeedFilters()
+                        }) {
                             Text("Reset Filters")
                         }
                     }
                 }
             } else {
-                val grouped = remember(transactions) { groupTransactionsByDate(transactions) }
+                val grouped = remember(sortedTransactions) { groupTransactionsByDate(sortedTransactions) }
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),

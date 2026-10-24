@@ -42,6 +42,7 @@ import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.FeedScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SmsStudioScreen
+import com.example.ui.screens.AppLockScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.FinanceViewModel
 
@@ -81,6 +82,17 @@ fun PocketAnalystApp(
     var selectedDetailTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
 
     val categories by viewModel.allCategories.collectAsStateWithLifecycle()
+    val isAppLockEnabled by viewModel.isAppLockEnabled.collectAsStateWithLifecycle()
+    val isUnlocked by viewModel.isUnlocked.collectAsStateWithLifecycle()
+    val appPin by viewModel.appPin.collectAsStateWithLifecycle()
+
+    if (isAppLockEnabled && !isUnlocked) {
+        AppLockScreen(
+            correctPin = appPin,
+            onUnlock = { viewModel.unlockApp() }
+        )
+        return
+    }
 
     // Handle back button: return to ANALYST if on another tab
     if (currentTab != NavTab.ANALYST) {
